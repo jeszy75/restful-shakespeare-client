@@ -1,0 +1,834 @@
+openapi: 3.1.0
+info:
+  description: "A hypermedia REST API that serves the text of Shakespeare's plays\
+    \ in XML. Clients navigate with the `Link` header fields (RFC 8288) of the responses,\
+    \ starting at `/plays`. Plays, acts, scenes and speeches also support the `QUERY`\
+    \ method (RFC 10008) for XPath 1.0 expressions. Authenticated users can bookmark\
+    \ plays, acts, scenes and speeches, and add notes to their bookmarks. Errors are\
+    \ reported as problem details (RFC 9457) in XML."
+  license:
+    name: "The plays: public domain"
+  title: RESTful Shakespeare
+  version: 0.3.0-SNAPSHOT
+servers:
+- description: Generated server url
+  url: http://localhost:8080
+tags:
+- description: |-
+    The plays, and their acts, scenes and speeches, in XML. Every response has
+     <code>Link</code> header fields (RFC 8288) with the following link relation types:
+
+     <ul>
+     <li><code>self</code>: the resource itself,</li>
+     <li><code>up</code>: the parent (e.g., the act of a scene),</li>
+     <li><code>first</code>, <code>prev</code>, <code>next</code>, <code>last</code>: the siblings
+     (e.g., the other scenes of the same act),</li>
+     <li><code>item</code>: the children (e.g., the speeches of a scene),</li>
+     <li><code>tag:inf.unideb.hu,2026:restful-shakespeare/rels/bookmark</code>: where
+     to POST to bookmark the resource (plays, acts, scenes and speeches only; an
+     extension link relation type).</li>
+     </ul>
+
+     <p>The play, act, scene and speech resources also support the QUERY method;
+     their responses advertise this with the <code>Accept-Query</code> header field
+     (RFC 10008).
+
+     <p>Caching: responses carry <code>Last-Modified</code> (the start of the
+     application, since the representations can only change with a new
+     deployment) and <code>Cache-Control</code>, either <code>no-cache</code> (caches must
+     revalidate every time) or <code>public, max-age=...</code>, depending on the
+     configuration. Conditional requests (<code>If-Modified-Since</code>) are answered
+     with 304 (Not Modified).
+
+     <p>HEAD and OPTIONS requests are also supported.
+  name: play-controller
+- description: |-
+    Evaluates XPath expressions on parts of the plays with the QUERY method
+     (RFC 10008). The expression is the request content (<code>text/plain</code>),
+     its context item is the target resource (a play, an act, a scene, or a
+     speech), and the result is returned wrapped into an <code>r:results</code>
+     element (namespace <code>tag:inf.unideb.hu,2026:restful-shakespeare/results</code>)
+     whose <code>type</code> attribute is <code>node-set</code>, <code>string</code>,
+     <code>number</code> or <code>boolean</code>:
+
+     <pre>
+     QUERY /plays/macbeth/acts/1/scenes/3 HTTP/1.1
+     Content-Type: text/plain
+
+     SPEECH[SPEAKER = 'BANQUO']/LINE[1]
+     </pre>
+
+     <p>Only XPath 1.0 expressions without extension functions are accepted.
+
+     <p>Responses to QUERY are cacheable (RFC 10008, with the request content as
+     part of the cache key); they carry the same <code>Cache-Control</code> as the
+     GET responses, but no validator, since conditional requests and 304 (Not
+     Modified) are defined for GET and HEAD.
+  name: query-controller
+- description: |-
+    The bookmarks of the users. A bookmark refers to a play, an act, a scene or
+     a speech (its target), and has a note (plain text).
+
+     <p>Bookmarks are created by POST requests to the URIs that the plays, acts,
+     scenes and speeches link to with the
+     <code>tag:inf.unideb.hu,2026:restful-shakespeare/rels/bookmark</code> link
+     relation type, e.g., <code>/plays/macbeth/acts/1/bookmark</code>. The bookmarks
+     of a user are listed at, e.g., <code>/users/alice/bookmarks</code>, and each
+     bookmark has its own URI, e.g., <code>/users/alice/bookmarks/7</code>:
+
+     <pre>
+     &lt;bookmark id="7"&gt;
+       &lt;target&gt;/plays/macbeth/acts/1/scenes/3&lt;/target&gt;
+       &lt;note&gt;The prophecy of the witches&lt;/note&gt;
+     &lt;/bookmark&gt;
+     </pre>
+
+     <p>All of these operations require HTTP Basic authentication, and users can
+     access their own bookmarks only.
+  name: bookmark-controller
+paths:
+  /plays:
+    get:
+      description: |-
+        Returns the list of the plays.
+
+         <p>The response has an <code>item</code> link to each play.
+      operationId: plays
+      responses:
+        "200":
+          content:
+            application/xml:
+              schema:
+                type: string
+          description: the identifiers and the titles of the plays in a <code>plays</code>
+            element
+          headers:
+            Link:
+              description: Links to related resources (RFC 8288)
+              schema:
+                type: string
+      summary: Returns the list of the plays
+      tags:
+      - play-controller
+  /plays/{play}:
+    get:
+      description: |-
+        Returns a play.
+
+         <p>The response has <code>item</code> links to the acts of the play, and a
+         link to the URI where the play can be bookmarked.
+      operationId: play
+      parameters:
+      - description: "the identifier of the play, e.g., <code>macbeth</code>"
+        in: path
+        name: play
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/xml:
+              schema:
+                type: string
+          description: the <code>PLAY</code> element of the play
+          headers:
+            Link:
+              description: Links to related resources (RFC 8288)
+              schema:
+                type: string
+        "404":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: "The play, act, scene or speech does not exist"
+      summary: Returns a play
+      tags:
+      - play-controller
+  /plays/{play}/acts/{act}:
+    get:
+      description: |-
+        Returns an act of a play.
+
+         <p>The response has <code>item</code> links to the scenes of the act, and
+         <code>first</code>, <code>prev</code>, <code>next</code> and <code>last</code> links to the
+         acts of the play, and a link to the URI where the act can be bookmarked.
+      operationId: act
+      parameters:
+      - description: "the identifier of the play, e.g., <code>macbeth</code>"
+        in: path
+        name: play
+        required: true
+        schema:
+          type: string
+      - description: "the number of the act, starting from 1"
+        in: path
+        name: act
+        required: true
+        schema:
+          type: integer
+          format: int32
+      responses:
+        "200":
+          content:
+            application/xml:
+              schema:
+                type: string
+          description: the <code>ACT</code> element of the act
+          headers:
+            Link:
+              description: Links to related resources (RFC 8288)
+              schema:
+                type: string
+        "400":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: A number in the path is not a valid number
+        "404":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: "The play, act, scene or speech does not exist"
+      summary: Returns an act of a play
+      tags:
+      - play-controller
+  /plays/{play}/acts/{act}/bookmark:
+    post:
+      description: |-
+        Bookmarks an act for the authenticated user.
+
+         <p>The response is the new bookmark, and its URI is given in the
+         <code>Location</code> header field.
+      operationId: bookmarkAct
+      parameters:
+      - description: "the identifier of the play, e.g., <code>macbeth</code>"
+        in: path
+        name: play
+        required: true
+        schema:
+          type: string
+      - description: "the number of the act, starting from 1"
+        in: path
+        name: act
+        required: true
+        schema:
+          type: integer
+          format: int32
+      requestBody:
+        content:
+          text/plain:
+            schema:
+              type: string
+        description: "a note for the bookmark (plain text, may be empty)"
+      responses:
+        "201":
+          content:
+            application/xml:
+              schema:
+                type: string
+          description: the new bookmark
+          headers:
+            Location:
+              description: The URI of the new resource
+              schema:
+                type: string
+        "400":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: A number in the path is not a valid number
+        "401":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The credentials are missing or wrong
+        "404":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: "The play, act, scene or speech does not exist"
+        "415":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The content is not plain text (`text/plain`)
+      security:
+      - basicAuth: []
+      summary: Bookmarks an act for the authenticated user
+      tags:
+      - bookmark-controller
+  /plays/{play}/acts/{act}/scenes/{scene}:
+    get:
+      description: |-
+        Returns a scene of an act.
+
+         <p>The response has <code>item</code> links to the speeches of the scene, and
+         <code>first</code>, <code>prev</code>, <code>next</code> and <code>last</code> links to the
+         scenes of the act, and a link to the URI where the scene can be bookmarked.
+      operationId: scene
+      parameters:
+      - description: "the identifier of the play, e.g., <code>macbeth</code>"
+        in: path
+        name: play
+        required: true
+        schema:
+          type: string
+      - description: "the number of the act, starting from 1"
+        in: path
+        name: act
+        required: true
+        schema:
+          type: integer
+          format: int32
+      - description: "the number of the scene within the act, starting from 1"
+        in: path
+        name: scene
+        required: true
+        schema:
+          type: integer
+          format: int32
+      responses:
+        "200":
+          content:
+            application/xml:
+              schema:
+                type: string
+          description: the <code>SCENE</code> element of the scene
+          headers:
+            Link:
+              description: Links to related resources (RFC 8288)
+              schema:
+                type: string
+        "400":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: A number in the path is not a valid number
+        "404":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: "The play, act, scene or speech does not exist"
+      summary: Returns a scene of an act
+      tags:
+      - play-controller
+  /plays/{play}/acts/{act}/scenes/{scene}/bookmark:
+    post:
+      description: |-
+        Bookmarks a scene for the authenticated user.
+
+         <p>The response is the new bookmark, and its URI is given in the
+         <code>Location</code> header field.
+      operationId: bookmarkScene
+      parameters:
+      - description: "the identifier of the play, e.g., <code>macbeth</code>"
+        in: path
+        name: play
+        required: true
+        schema:
+          type: string
+      - description: "the number of the act, starting from 1"
+        in: path
+        name: act
+        required: true
+        schema:
+          type: integer
+          format: int32
+      - description: "the number of the scene within the act, starting from 1"
+        in: path
+        name: scene
+        required: true
+        schema:
+          type: integer
+          format: int32
+      requestBody:
+        content:
+          text/plain:
+            schema:
+              type: string
+        description: "a note for the bookmark (plain text, may be empty)"
+      responses:
+        "201":
+          content:
+            application/xml:
+              schema:
+                type: string
+          description: the new bookmark
+          headers:
+            Location:
+              description: The URI of the new resource
+              schema:
+                type: string
+        "400":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: A number in the path is not a valid number
+        "401":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The credentials are missing or wrong
+        "404":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: "The play, act, scene or speech does not exist"
+        "415":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The content is not plain text (`text/plain`)
+      security:
+      - basicAuth: []
+      summary: Bookmarks a scene for the authenticated user
+      tags:
+      - bookmark-controller
+  /plays/{play}/acts/{act}/scenes/{scene}/speeches/{speech}:
+    get:
+      description: |-
+        Returns a speech of a scene.
+
+         <p>The response has <code>first</code>, <code>prev</code>, <code>next</code> and
+         <code>last</code> links to the speeches of the scene, and a link to the URI
+         where the speech can be bookmarked.
+      operationId: speech
+      parameters:
+      - description: "the identifier of the play, e.g., <code>macbeth</code>"
+        in: path
+        name: play
+        required: true
+        schema:
+          type: string
+      - description: "the number of the act, starting from 1"
+        in: path
+        name: act
+        required: true
+        schema:
+          type: integer
+          format: int32
+      - description: "the number of the scene within the act, starting from 1"
+        in: path
+        name: scene
+        required: true
+        schema:
+          type: integer
+          format: int32
+      - description: "the number of the speech within the scene, starting from 1"
+        in: path
+        name: speech
+        required: true
+        schema:
+          type: integer
+          format: int32
+      responses:
+        "200":
+          content:
+            application/xml:
+              schema:
+                type: string
+          description: the <code>SPEECH</code> element of the speech
+          headers:
+            Link:
+              description: Links to related resources (RFC 8288)
+              schema:
+                type: string
+        "400":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: A number in the path is not a valid number
+        "404":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: "The play, act, scene or speech does not exist"
+      summary: Returns a speech of a scene
+      tags:
+      - play-controller
+  /plays/{play}/acts/{act}/scenes/{scene}/speeches/{speech}/bookmark:
+    post:
+      description: |-
+        Bookmarks a speech for the authenticated user.
+
+         <p>The response is the new bookmark, and its URI is given in the
+         <code>Location</code> header field.
+      operationId: bookmarkSpeech
+      parameters:
+      - description: "the identifier of the play, e.g., <code>macbeth</code>"
+        in: path
+        name: play
+        required: true
+        schema:
+          type: string
+      - description: "the number of the act, starting from 1"
+        in: path
+        name: act
+        required: true
+        schema:
+          type: integer
+          format: int32
+      - description: "the number of the scene within the act, starting from 1"
+        in: path
+        name: scene
+        required: true
+        schema:
+          type: integer
+          format: int32
+      - description: "the number of the speech within the scene, starting from 1"
+        in: path
+        name: speech
+        required: true
+        schema:
+          type: integer
+          format: int32
+      requestBody:
+        content:
+          text/plain:
+            schema:
+              type: string
+        description: "a note for the bookmark (plain text, may be empty)"
+      responses:
+        "201":
+          content:
+            application/xml:
+              schema:
+                type: string
+          description: the new bookmark
+          headers:
+            Location:
+              description: The URI of the new resource
+              schema:
+                type: string
+        "400":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: A number in the path is not a valid number
+        "401":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The credentials are missing or wrong
+        "404":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: "The play, act, scene or speech does not exist"
+        "415":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The content is not plain text (`text/plain`)
+      security:
+      - basicAuth: []
+      summary: Bookmarks a speech for the authenticated user
+      tags:
+      - bookmark-controller
+  /plays/{play}/bookmark:
+    post:
+      description: |-
+        Bookmarks a play for the authenticated user.
+
+         <p>The response is the new bookmark, and its URI is given in the
+         <code>Location</code> header field.
+      operationId: bookmarkPlay
+      parameters:
+      - description: "the identifier of the play, e.g., <code>macbeth</code>"
+        in: path
+        name: play
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          text/plain:
+            schema:
+              type: string
+        description: "a note for the bookmark (plain text, may be empty)"
+      responses:
+        "201":
+          content:
+            application/xml:
+              schema:
+                type: string
+          description: the new bookmark
+          headers:
+            Location:
+              description: The URI of the new resource
+              schema:
+                type: string
+        "401":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The credentials are missing or wrong
+        "404":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: "The play, act, scene or speech does not exist"
+        "415":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The content is not plain text (`text/plain`)
+      security:
+      - basicAuth: []
+      summary: Bookmarks a play for the authenticated user
+      tags:
+      - bookmark-controller
+  /users/{user}/bookmarks:
+    get:
+      description: |-
+        Returns the bookmarks of a user.
+
+         <p>The response has an <code>item</code> link to each bookmark.
+      operationId: bookmarks
+      parameters:
+      - description: "the name of the user, e.g., <code>alice</code>"
+        in: path
+        name: user
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          content:
+            application/xml:
+              schema:
+                type: string
+          description: the bookmarks of the user in a <code>bookmarks</code> element
+          headers:
+            Link:
+              description: Links to related resources (RFC 8288)
+              schema:
+                type: string
+        "401":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The credentials are missing or wrong
+        "403":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The bookmarks belong to another user
+      security:
+      - basicAuth: []
+      summary: Returns the bookmarks of a user
+      tags:
+      - bookmark-controller
+  /users/{user}/bookmarks/{id}:
+    delete:
+      description: |-
+        Deletes a bookmark.
+
+         <p>The identifiers of deleted bookmarks are never reused.
+      operationId: delete
+      parameters:
+      - description: "the name of the user, e.g., <code>alice</code>"
+        in: path
+        name: user
+        required: true
+        schema:
+          type: string
+      - description: the identifier of the bookmark
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int32
+      responses:
+        "204":
+          description: "no content: the bookmark has been deleted"
+        "400":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: A number in the path is not a valid number
+        "401":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The credentials are missing or wrong
+        "403":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The bookmarks belong to another user
+        "404":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The bookmark does not exist
+      security:
+      - basicAuth: []
+      summary: Deletes a bookmark
+      tags:
+      - bookmark-controller
+    get:
+      description: |-
+        Returns a bookmark.
+
+         <p>The response has a <code>collection</code> link to the bookmarks of the
+         user.
+      operationId: bookmark
+      parameters:
+      - description: "the name of the user, e.g., <code>alice</code>"
+        in: path
+        name: user
+        required: true
+        schema:
+          type: string
+      - description: the identifier of the bookmark
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int32
+      responses:
+        "200":
+          content:
+            application/xml:
+              schema:
+                type: string
+          description: "the bookmark, with its target and note"
+          headers:
+            Link:
+              description: Links to related resources (RFC 8288)
+              schema:
+                type: string
+        "400":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: A number in the path is not a valid number
+        "401":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The credentials are missing or wrong
+        "403":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The bookmarks belong to another user
+        "404":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The bookmark does not exist
+      security:
+      - basicAuth: []
+      summary: Returns a bookmark
+      tags:
+      - bookmark-controller
+    put:
+      description: |-
+        Replaces the note of a bookmark.
+
+         <p>The plain text representation of a bookmark is its note, so the new
+         note is sent with PUT. The target of a bookmark cannot be changed.
+      operationId: replaceNote
+      parameters:
+      - description: "the name of the user, e.g., <code>alice</code>"
+        in: path
+        name: user
+        required: true
+        schema:
+          type: string
+      - description: the identifier of the bookmark
+        in: path
+        name: id
+        required: true
+        schema:
+          type: integer
+          format: int32
+      requestBody:
+        content:
+          text/plain:
+            schema:
+              type: string
+        description: "the new note (plain text, may be empty)"
+      responses:
+        "204":
+          description: "no content: the note has been replaced"
+        "400":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: A number in the path is not a valid number
+        "401":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The credentials are missing or wrong
+        "403":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The bookmarks belong to another user
+        "404":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The bookmark does not exist
+        "415":
+          content:
+            application/problem+xml:
+              schema:
+                type: string
+          description: The content is not plain text (`text/plain`)
+      security:
+      - basicAuth: []
+      summary: Replaces the note of a bookmark
+      tags:
+      - bookmark-controller
+components:
+  securitySchemes:
+    basicAuth:
+      description: "HTTP Basic authentication (RFC 7617). There are two users (only\
+        \ for a demo): `alice` with the password `wonderland`, and `bob` with the\
+        \ password `builder`."
+      scheme: basic
+      type: http
